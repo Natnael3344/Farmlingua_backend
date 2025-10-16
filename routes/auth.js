@@ -3,6 +3,7 @@ import { query } from '../config/database.js';
 import { hashPassword, comparePassword, generateToken } from '../utils/auth.js';
 import { validateRegistration, validateLogin } from '../utils/validation.js';
 import { OAuth2Client } from 'google-auth-library'; 
+import axios from 'axios';
 const router = express.Router();
 const GOOGLE_CLIENT_ID = "289922726253-q12k8ea9meb7jguh2s8jl9seb31rn9jl.apps.googleusercontent.com";
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
@@ -173,6 +174,62 @@ router.post('/social/google', async (req, res) => {
 });
 
 
+router.post('/social/facebook', async (req, res) => {
+  try {
+    const { accessToken } = req.body;
+
+    if (!accessToken) {
+      return res.status(400).json({ error: 'Facebook access token required' });
+    }
+
+    // Verify token by calling Facebook Graph API
+    const fbResponse = await axios.get(`https://graph.facebook.com/me`, {
+      params: {
+        access_token: accessToken,
+        fields: 'id,name,email',
+      },
+    });
+
+    const { id: facebookId, email, name } = fbResponse.data;
+
+    // Validate response data
+    if (!email) {
+      return res.status(400).json({ error: 'Facebook account does not have an email' });
+    }
+
+    // Check if user exists by email
+    const userQuery = 'SELECT id FROM users WHERE email = $1 LIMIT 1';
+    const userResult = await query(userQuery, [email.toLowerCase()]);
+    let user = userResult.rows[0];
+
+    let userId;
+
+    if (user) {
+      userId = user.id;
+    } else {
+      // Create new user record, password_hash can be null for social users
+      const insertUserQuery = `
+        INSERT INTO users (name, email, password_hash, created_at)
+        VALUES ($1, $2, NULL, NOW())
+        RETURNING id
+      `;
+      const insertResult = await query(insertUserQuery, [name, email.toLowerCase(), facebookId, 'facebook']);
+
+      if (!insertResult.rows[0]) {
+        return res.status(500).json({ error: 'Failed to create user' });
+      }
+      userId = insertResult.rows[0].id;
+    }
+
+    // Generate JWT token
+    const token = generateToken(userId);
+
+    return res.status(200).json({ token, userId });
+  } catch (error) {
+    console.error('Facebook auth error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 router.post('/forgot-password', async (req, res) => {
   try {
