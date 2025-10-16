@@ -2,9 +2,17 @@ import express from 'express';
 import { query } from '../config/database.js';
 import { hashPassword, comparePassword, generateToken } from '../utils/auth.js';
 import { validateRegistration, validateLogin } from '../utils/validation.js';
-
+import { OAuth2Client } from 'google-auth-library'; 
 const router = express.Router();
-
+const GOOGLE_CLIENT_ID = "289922726253-q12k8ea9meb7jguh2s8jl9seb31rn9jl.apps.googleusercontent.com";
+const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
+async function verifyGoogleIdToken(token) {
+    const ticket = await googleClient.verifyIdToken({
+        idToken: token,
+        audience: GOOGLE_CLIENT_ID,
+    });
+    return ticket.getPayload();
+}
 router.post('/register', async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -100,23 +108,70 @@ router.post('/login', async (req, res) => {
 
 
 router.post('/social/google', async (req, res) => {
-  try {
-    const { token: googleToken } = req.body;
+    try {
+        // The client sends the 'idToken' in the request body
+        const { idToken } = req.body; 
 
-    if (!googleToken) {
-      return res.status(400).json({ error: 'Google token required' });
+        if (!idToken) {
+            return res.status(400).json({ error: 'Google ID token required' });
+        }
+
+        // 1. Verify the ID Token with Google
+        let payload;
+        try {
+            payload = await verifyGoogleIdToken(idToken);
+        } catch (verificationError) {
+            console.error('Google token verification failed:', verificationError.message);
+            return res.status(401).json({ error: 'Invalid or expired Google token' });
+        }
+
+        const email = payload.email.toLowerCase();
+        const name = payload.name;
+
+        // 2. Check if user already exists in your database
+        const checkQuery = 'SELECT id FROM users WHERE email = $1 LIMIT 1';
+        const checkResult = await query(checkQuery, [email]);
+        let user = checkResult.rows[0];
+        
+        let userId;
+
+        if (user) {
+            // User exists: Log them in
+            userId = user.id;
+        } else {
+            // New user: Create a new user record
+            console.log(`Creating new user for Google email: ${email}`);
+
+            const insertQuery = `
+                INSERT INTO users (name, email, password_hash, created_at)
+                VALUES ($1, $2, NULL, NOW()) 
+                RETURNING id
+            `;
+            const insertResult = await query(insertQuery, [
+                name,
+                email
+            ]);
+
+            if (!insertResult.rows[0]) {
+                 return res.status(500).json({ error: 'Failed to create social user record' });
+            }
+            userId = insertResult.rows[0].id;
+        }
+
+        // 3. Generate and return your application's JWT
+        const token = generateToken(userId);
+
+        return res.status(200).json({
+            token,
+            userId
+        });
+
+    } catch (error) {
+        console.error('Google auth error:', error);
+        return res.status(500).json({ error: 'Internal server error' });
     }
-
-    return res.status(501).json({
-      error: 'Google authentication not yet implemented',
-      message: 'This endpoint is a stub for future implementation'
-    });
-
-  } catch (error) {
-    console.error('Google auth error:', error);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
 });
+
 
 
 router.post('/forgot-password', async (req, res) => {
