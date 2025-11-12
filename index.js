@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import { initializeDatabase } from './config/database.js';
 import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
-
+import path from 'path'
 dotenv.config();
 
 const app = express();
@@ -34,6 +34,8 @@ app.get('/', (req, res) => {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
+
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Endpoint not found' });
