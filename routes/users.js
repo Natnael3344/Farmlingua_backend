@@ -29,7 +29,8 @@ router.get('/me', authenticateToken, async (req, res) => {
       id: user.id,
       name: user.name,
       email: user.email,
-      created_at: user.created_at
+      created_at: user.created_at,
+      profile_picture:user.profile_picture
     });
 
   } catch (error) {
