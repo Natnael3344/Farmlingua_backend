@@ -4,16 +4,31 @@ import dotenv from 'dotenv';
 import { initializeDatabase } from './config/database.js';
 import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
-import path from 'path'
+import path from 'path';
+import { fileURLToPath } from 'url';
+import fs from 'fs';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Serve public folder
+const publicDir = path.join(__dirname, 'public', 'user-content');
+if (!fs.existsSync(publicDir)) {
+  fs.mkdirSync(publicDir, { recursive: true });
+}
+app.use('/user-content', express.static(publicDir));
+
+// Base route
 app.get('/', (req, res) => {
   res.json({
     message: 'Authentication API',
@@ -26,42 +41,40 @@ app.get('/', (req, res) => {
         forgotPassword: 'POST /api/auth/forgot-password'
       },
       users: {
-        profile: 'GET /api/users/me (requires auth)'
+        profile: 'GET /api/users/me (requires auth)',
+        upload: 'POST /api/users/upload-profile-picture (requires auth)'
       }
     }
   });
 });
 
+// Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 
-app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
-
+// Handle 404
 app.use((req, res) => {
   res.status(404).json({ error: 'Endpoint not found' });
 });
 
+// Handle 500
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
   res.status(500).json({ error: 'Internal server error' });
 });
 
+// Start server
 async function startServer() {
   try {
     await initializeDatabase();
 
     app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
+      console.log(`✅ Server running on port ${PORT}`);
       console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`\nAvailable endpoints:`);
-      console.log(`  POST /api/auth/register`);
-      console.log(`  POST /api/auth/login`);
-      console.log(`  POST /api/auth/social/google`);
-      console.log(`  POST /api/auth/forgot-password`);
-      console.log(`  GET  /api/users/me (requires auth)`);
+      console.log(`Serving user-content at /user-content`);
     });
   } catch (error) {
-    console.error('Failed to start server:', error);
+    console.error('❌ Failed to start server:', error);
     process.exit(1);
   }
 }
